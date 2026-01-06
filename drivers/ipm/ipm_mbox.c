@@ -25,13 +25,49 @@ struct ipm_mbox_config {
 	struct mbox_dt_spec mbox_rx;
 };
 
-static void ipm_mbox_callback(const struct device *mboxdev, mbox_channel_id_t channel_id,
-			      void *user_data, struct mbox_msg *data)
+/**
+ * @brief Mailbox callback wrapper for IPM
+ *
+ * This function is registered as the mailbox callback and forwards
+ * received messages to the IPM callback.
+ *
+ * Some mailbox implementations may deliver notifications without
+ * an associated data payload (i.e. @p data is NULL, @p data->data
+ * is NULL, or @p data->size is zero). In such cases, the IPM callback
+ * is still invoked with a NULL payload pointer to allow signal-only
+ * mailbox usage.
+ *
+ * @param mboxdev    Mailbox device instance
+ * @param channel_id Mailbox channel identifier
+ * @param user_data  Pointer to the IPM device
+ * @param data       Mailbox message, may be NULL or contain no payload
+ */
+static void ipm_mbox_callback(const struct device *mboxdev,
+			      mbox_channel_id_t channel_id,
+			      void *user_data,
+			      struct mbox_msg *data)
 {
 	const struct device *ipmdev = user_data;
 	struct ipm_mbox_data *ipm_mbox_data = ipmdev->data;
+	void *payload = NULL;
 
-	ipm_mbox_data->callback(ipmdev, ipm_mbox_data->user_data, channel_id, (void *)data->data);
+	if (!ipm_mbox_data || !ipm_mbox_data->callback) {
+		return;
+	}
+
+	/*
+	 * Mailbox drivers may provide a notification without a data payload.
+	 * Treat such messages as valid and forward a NULL payload pointer
+	 * to the IPM callback.
+	 */
+	if (data && data->data && data->size > 0) {
+		payload = data->data;
+	}
+
+	ipm_mbox_data->callback(ipmdev,
+				ipm_mbox_data->user_data,
+				channel_id,
+				payload);
 }
 
 static int ipm_mbox_send(const struct device *ipmdev, int wait, uint32_t id,
